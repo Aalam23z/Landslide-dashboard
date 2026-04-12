@@ -2,16 +2,16 @@ import requests
 import time
 import random
 
-url = "http://landslide-backend-gip0.onrender.com/sensor-data"
+url = "http://127.0.0.1:8000/sensor-data"
 
 print("Simulating Sensor Data...\n")
 
 while True:
     payload = {
-        "moisture": random.randint(10, 100),
-        "rain": random.randint(0, 1),
-        "humidity": random.randint(40, 50),
-        "tilt": 0
+        "moisture": random.randint(100, 300),
+        "rain": random.randint(0, 3),
+        "humidity": random.randint(40, 90),
+        "tilt": 5
     }
 
     try:

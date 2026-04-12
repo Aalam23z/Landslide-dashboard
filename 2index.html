@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en" data-api-url="/predict">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Live landslide risk dashboard with sensor telemetry — Team INV-41." />
+  <title>Live Risk Dashboard — Landslide Monitoring</title>
+  <link rel="stylesheet" href="2style.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to main content</a>
+
+  <header class="dash-hero">
+    <div class="dash-hero__bg" aria-hidden="true"></div>
+    <div class="container dash-hero__inner">
+      <h1 class="dash-hero__title">Live Landslide Risk Dashboard</h1>
+      <p class="dash-hero__meta">Team INV-41 · Real-time sensor intelligence</p>
+      <div class="dash-toolbar" role="toolbar" aria-label="Dashboard controls">
+        <p class="dash-status" id="conn-status" aria-live="polite">Data connection: …</p>
+        <button type="button" class="btn btn--ghost" id="sound-toggle" aria-pressed="true" aria-label="Alert sound on">
+          Sound: ON
+        </button>
+      </div>
+      <p class="dash-hint" id="audio-hint" hidden>Interact with the page once to allow alert sounds in this browser.</p>
+      <details class="dash-help">
+        <summary class="dash-help__summary">How to connect this page to the API</summary>
+        <div class="dash-help__body">
+          <p>
+            Serve this page from the <strong>same origin</strong> as the backend (for example open it via FastAPI static files or
+            <code>uvicorn</code> on port 8000), or point the client at your server using <code>data-api-url</code> on the
+            <code>&lt;html&gt;</code> element or <code>?api=</code> (full URL), e.g.
+            <code>http://127.0.0.1:8000/predict</code>.
+          </p>
+          <p>
+            The parser accepts a flat JSON body (<code>risk</code>, <code>soil_moisture</code>, …) or the FastAPI shape with
+            <code>data.moisture</code>. If <code>/predict</code> returns <code>{"error":"No sensor data available"}</code>, the
+            status line shows <strong>Warning</strong> (API reachable) and the subtitle shows the server message until valid data exists.
+          </p>
+        </div>
+      </details>
+    </div>
+  </header>
+
+  <main id="main" class="dash-main">
+    <div class="container">
+      <section class="dash-panel" aria-labelledby="risk-heading">
+        <h2 id="risk-heading" class="dash-panel__title">Current risk</h2>
+        <p class="dash-risk" id="risk-level" aria-live="assertive" aria-atomic="true">—</p>
+        <p class="dash-risk__sub" id="risk-updated">Awaiting data…</p>
+      </section>
+
+      <section class="dash-panel" aria-labelledby="sensors-heading">
+        <h2 id="sensors-heading" class="dash-panel__title">Sensor readings</h2>
+        <ul class="sensor-list" role="list">
+          <li class="sensor-row">
+            <div class="sensor-row__label">
+              <span>Soil moisture</span>
+              <span class="sensor-row__val"><span id="val-moisture">—</span> <span class="unit">%</span></span>
+            </div>
+            <div class="meter" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="meter-moisture-wrap">
+              <div class="meter__fill" id="meter-moisture"></div>
+            </div>
+          </li>
+          <li class="sensor-row">
+            <div class="sensor-row__label">
+              <span>Rainfall</span>
+              <span class="sensor-row__val"><span id="val-rain">—</span> <span class="unit">mm</span></span>
+            </div>
+            <div class="meter" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="meter-rain-wrap">
+              <div class="meter__fill" id="meter-rain"></div>
+            </div>
+          </li>
+          <li class="sensor-row">
+            <div class="sensor-row__label">
+              <span>Humidity</span>
+              <span class="sensor-row__val"><span id="val-humidity">—</span> <span class="unit">%</span></span>
+            </div>
+            <div class="meter" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="meter-humidity-wrap">
+              <div class="meter__fill" id="meter-humidity"></div>
+            </div>
+          </li>
+          <li class="sensor-row">
+            <div class="sensor-row__label">
+              <span>Tilt</span>
+              <span class="sensor-row__val"><span id="val-tilt">—</span> <span class="unit">°</span></span>
+            </div>
+            <div class="meter" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="meter-tilt-wrap">
+              <div class="meter__fill" id="meter-tilt"></div>
+            </div>
+          </li>
+        </ul>
+      </section>
+
+      <section class="dash-panel" aria-labelledby="log-heading">
+        <h2 id="log-heading" class="dash-panel__title">Alert log</h2>
+        <ol class="alert-log" id="alert-log" aria-live="polite" aria-relevant="additions"></ol>
+      </section>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer__inner">
+      <p class="footer__line">
+        <span class="footer__name">AI Powered Landslide Risk Prediction</span>
+        <span class="footer__sep" aria-hidden="true">·</span>
+        <span>Team INV-41</span>
+        <span class="footer__sep" aria-hidden="true">·</span>
+        <span>2026</span>
+      </p>
+      <p class="footer__links">
+        <a class="footer__link" href="index.html">Marketing site</a>
+      </p>
+    </div>
+  </footer>
+
+  <script src="2script.js" defer></script>
+</body>
+</html>
