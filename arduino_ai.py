@@ -8,9 +8,9 @@ if not port:
     port = "COM6"   # default fallback
 
 
-ser = serial.Serial(port, 9600)
+ser = serial.Serial('COM6', 9600)
 
-url = "http://127.0.0.1:8000/sensor-data"
+url = "https://landslide-backend-gip0.onrender.com/sensor-data"
 
 print("Reading Arduino Data...\n")
 

@@ -1,25 +1,39 @@
+import serial
 import requests
 import time
-import random
 
-url = "http://landslide-backend-gip0.onrender.com/sensor-data"
+# 🔌 COM PORT
+port = input("Enter COM port (e.g., COM6): ")
+if not port:
+    port = "COM6"
 
-print("Simulating Sensor Data...\n")
+ser = serial.Serial(port, 9600)
+
+# 🌐 Render backend (HTTPS)
+url = "https://landslide-backend-gip0.onrender.com/sensor-data"
+
+print("Reading Sensor Data...\n")
 
 while True:
-    payload = {
-        "moisture": random.randint(10, 100),
-        "rain": random.randint(0, 1),
-        "humidity": random.randint(40, 50),
-        "tilt": 0
-    }
-
     try:
+        data = ser.readline().decode().strip()
+        values = list(map(float, data.split(",")))
+
+        payload = {
+            "moisture": values[0],
+            "rain": 1023 - values[1],
+            "humidity": values[2],
+            "tilt": 0   # keep fixed if sensor not working
+        }
+
         response = requests.post(url, json=payload)
+
         print("Sent:", payload)
         print("Response:", response.json())
         print("----------------------------------")
+
     except Exception as e:
         print("Error:", e)
+        print("Raw:", data)
 
     time.sleep(3)
