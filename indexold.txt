@@ -526,7 +526,7 @@
     </div>
     <div class="header-stat">
       <div class="label">REFRESH</div>
-      <div class="val">5s</div>
+      <div class="val">2s</div>
     </div>
     <div class="refresh-ring" id="refresh-ring"></div>
     <div class="status-dot" id="conn-dot"></div>
@@ -660,7 +660,7 @@
 
 </main>
 
-<footer>LANDSENSE MONITOR v1.0 &nbsp;|&nbsp; IoT LANDSLIDE PREDICTION SYSTEM &nbsp;|&nbsp; AUTO-REFRESH EVERY 5s</footer>
+<footer>LANDSENSE MONITOR v1.0 &nbsp;|&nbsp; IoT LANDSLIDE PREDICTION SYSTEM &nbsp;|&nbsp; AUTO-REFRESH EVERY 2s</footer>
 
 <script>
 // ══════════════════════════════════════════════
