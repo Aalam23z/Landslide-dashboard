@@ -631,7 +631,7 @@
       <div class="status-grid">
         <div class="status-row">
           <span class="status-key">API ENDPOINT</span>
-          <span class="status-val" id="st-endpoint">/predict</span>
+          <span class="status-val" id="st-endpoint">/latest</span>
         </div>
         <div class="status-row">
           <span class="status-key">CONNECTION</span>
@@ -667,7 +667,7 @@
 //  CONFIG — change API_URL to your backend
 // ══════════════════════════════════════════════
 const CONFIG = {
-  API_URL: 'https://landslide-backend-gip0.onrender.com/predict',
+  API_URL: 'https://landslide-backend-gip0.onrender.com/latest',
   REFRESH_MS:     2000,
   DEMO_MODE:      false,   // set false when real backend is running
   MAX_LOG:        50,
@@ -759,13 +759,64 @@ function updateSensor(id, value, max) {
   void valEl.offsetWidth;
   valEl.classList.add('flash');
 
-  const num = parseFloat(value);
-  valEl.innerHTML = `${num}<span>${id === 'humidity' ? '%' : id === 'tilt' ? '°' : id === 'rain' ? ' lvl' : ''}</span>`;
-  barEl.style.width = `${Math.min(100, (num / max) * 100)}%`;
+ const num = parseFloat(value);
+if (isNaN(num)) return;
 
-  // sparkline
+const safeNum = Math.max(0, num);
+  if (id === 'rain') {
+  let percent = (safeNum / 1023) * 100;
+  percent = Math.max(0, Math.min(100, percent));
+
+  displayValue = percent.toFixed(0);
+  barValue = percent;
+}
+if (id === 'tilt') {
+  let percent = (safeNum / 5) * 100;   // since max tilt ≈ 5
+  percent = Math.max(0, Math.min(100, percent));
+
+  displayValue = percent.toFixed(0);
+  barValue = percent;
+}
+  let displayValue = safeNum;
+let barValue = safeNum;
+
+if (id === 'moisture') {
+  const DRY = 1023;
+  const WET = 300;   // adjust if needed based on your sensor
+
+  // Convert to 0–100% (higher = more wet/danger)
+  let percent = ((DRY - num) / (DRY - WET)) * 100;
+
+  // Clamp values
+  percent = Math.max(0, Math.min(100, percent));
+
+  displayValue = percent.toFixed(0);   // for UI
+  barValue = percent;                 // for bar
+}
+valEl.innerHTML = `${displayValue}<span>%</span>`;
+
+
+barEl.style.width = `${Math.min(100, (barValue / max) * 100)}%`;  // sparkline
+let color = "#00ff88";
+
+if (barValue > 70) {
+  color = "#ff2244";   // danger
+} else if (barValue > 40) {
+  color = "#ffcc00";   // warning
+}
+
+barEl.style.background = color;
+valEl.style.color = color;
+barEl.style.background = color;
   const arr = state.sparkData[id];
-  arr.push(num);
+  arr.push(safeNum);
+  if (arr.length >= 5) {
+  let diff = arr[arr.length - 1] - arr[arr.length - 5];
+
+  if (diff > 100) {
+    barEl.style.boxShadow = "0 0 20px red";
+  }
+}
   if (arr.length > CONFIG.SPARK_POINTS) arr.shift();
   drawSparkline(`spark-${id}`, arr, max);
 }
@@ -911,6 +962,7 @@ async function poll() {
 
   try {
     const json = await fetchData();
+    console.log("API DATA:", json);
     const { risk, data } = json;
 
     // update risk display
@@ -918,10 +970,9 @@ async function poll() {
 
     // update sensors
     updateSensor('moisture', data.moisture, 1023);
-    updateSensor('rain',     data.rain,     10);
+    updateSensor('rain', data.rain, 1023);
     updateSensor('humidity', data.humidity, 100);
-    updateSensor('tilt',     data.tilt,     45);
-
+    updateSensor('tilt', data.tilt, 5);
     // log
     addLog(risk, data);
 
