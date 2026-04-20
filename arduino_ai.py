@@ -1,38 +1,60 @@
 import serial
 import requests
+import json
+import time
 
-# Ask COM port (flexible for demo)
-port = input("Enter COM port (e.g., COM6): ")
+SERIAL_PORT = "COM6"   # Arduino USB
+BAUD = 9600
+BACKEND = "https://landslide-backend-gip0.onrender.com/sensor-data"
 
-if not port:
-    port = "COM6"   # default fallback
+last_sms_time = 0
+SMS_COOLDOWN = 60  # seconds
 
-
-ser = serial.Serial('COM6', 9600)
-
-url = "https://landslide-backend-gip0.onrender.com/sensor-data"
-
-print("Reading Arduino Data...\n")
-
-while True:
-    data = ser.readline().decode().strip()
-
+def parse(line):
     try:
-        values = list(map(float, data.split(",")))
+        start = line.find("{")
+        end = line.rfind("}")
+        if start == -1 or end == -1:
+            return None
+        return json.loads(line[start:end+1])
+    except:
+        return None
 
-        payload = {
-            "moisture": values[0],
-            "rain": values[1],
-            "humidity": values[2],
-            "tilt": 5   # fixed (since sensor not working)
-        }
+def main():
+    global last_sms_time
 
-        response = requests.post(url, json=payload)
+    with serial.Serial(SERIAL_PORT, BAUD, timeout=2) as ser:
+        print("Connected to Arduino\n")
 
-        print("Sent:", payload)
-        print("Response:", response.json())
-        print("----------------------------------")
+        while True:
+            line = ser.readline().decode(errors="ignore").strip()
+            if not line:
+                continue
 
-    except Exception as e:
-        print("Error:", e)
-        print("Raw data:", data)
+            data = parse(line)
+            if not data:
+                continue
+
+            print("[DATA]", data)
+
+            try:
+                res = requests.post(BACKEND, json=data, timeout=5)
+                result = res.json()
+
+                risk = result.get("risk", "UNKNOWN")
+                print("[RISK]", risk)
+
+                now = time.time()
+
+                if risk == "HIGH" and (now - last_sms_time > SMS_COOLDOWN):
+                    print("[ACTION] Triggering SMS")
+                    ser.write(b"SEND_SMS\n")
+                    last_sms_time = now
+
+            except Exception as e:
+                print("[ERROR]", e)
+
+            time.sleep(1)
+
+if __name__ == "__main__":
+    main()

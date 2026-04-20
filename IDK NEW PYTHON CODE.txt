@@ -1,0 +1,26 @@
+import serial
+
+ser = serial.Serial('COM7', 9600)  # change COM port
+
+while True:
+    data = ser.readline().decode().strip()
+    print("DATA:", data)
+
+    try:
+        moisture, rain, humidity, tilt = map(float, data.split(","))
+
+        # -------- DECISION LOGIC --------
+        if moisture > 70 and rain > 500 and abs(tilt) > 8:
+            status = "CRITICAL"
+        elif moisture > 50:
+            status = "WARNING"
+        else:
+            status = "SAFE"
+
+        print("STATUS:", status)
+
+        # Send back to Arduino
+        ser.write((status + "\n").encode())
+
+    except:
+        print("ERROR")
