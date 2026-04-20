@@ -767,7 +767,10 @@ const safeNum = Math.max(0, num);
 let barValue = safeNum;
 
 if (id === 'rain') {
-  let percent = (safeNum / 1023) * 100;
+  const DRY = 1023;
+  const WET = 500;   // your calibrated wet value
+
+  let percent = ((DRY - safeNum) / (DRY - WET)) * 100;
   percent = Math.max(0, Math.min(100, percent));
 
   displayValue = percent.toFixed(0);
