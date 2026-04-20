@@ -39,7 +39,8 @@ def receive_data(data: SensorData):
     result = model.predict(input_data)
 
     risk_map = {0: "LOW", 1: "MEDIUM", 2: "HIGH"}
-    latest_risk = risk_map.get(result[0], "UNKNOWN")
+    value = int(result[0])   # 🔥 convert numpy → int
+    latest_risk = risk_map.get(value, "UNKNOWN")
 
     return {
         "risk": latest_risk,
