@@ -421,9 +421,9 @@
     border-radius: 50%;
     flex-shrink: 0;
   }
-  .alert-dot.LOW  { background: var(--low);  box-shadow: 0 0 6px var(--low); }
-  .alert-dot.MEDIUM { background: var(--med); box-shadow: 0 0 6px var(--med); }
-  .alert-dot.HIGH { background: var(--high); box-shadow: 0 0 6px var(--high); }
+  .alert-dot.LOW    { background: var(--low);  box-shadow: 0 0 6px var(--low); }
+  .alert-dot.MEDIUM { background: var(--med);  box-shadow: 0 0 6px var(--med); }
+  .alert-dot.HIGH   { background: var(--high); box-shadow: 0 0 6px var(--high); }
   .alert-time { color: var(--muted); font-size: .65rem; margin-left: auto; }
 
   /* status panel */
@@ -559,12 +559,12 @@
         <div class="sensor-icon">💧</div>
         <div>
           <div class="sensor-name">SOIL MOISTURE</div>
-          <div class="sensor-unit">RAW ADC VALUE</div>
+          <div class="sensor-unit">MOISTURE LEVEL</div>
         </div>
       </div>
-      <div class="sensor-value" id="val-moisture">—<span>units</span></div>
+      <div class="sensor-value" id="val-moisture">—<span>%</span></div>
       <div class="sensor-bar"><div class="sensor-bar-fill" id="bar-moisture"></div></div>
-      <div class="sensor-range"><span>0</span><span>1023</span></div>
+      <div class="sensor-range"><span>0%</span><span>100%</span></div>
       <div class="sparkline-wrap"><canvas id="spark-moisture"></canvas></div>
     </div>
 
@@ -576,9 +576,9 @@
           <div class="sensor-unit">INTENSITY LEVEL</div>
         </div>
       </div>
-      <div class="sensor-value" id="val-rain">—<span>lvl</span></div>
+      <div class="sensor-value" id="val-rain">—<span>%</span></div>
       <div class="sensor-bar"><div class="sensor-bar-fill" id="bar-rain"></div></div>
-      <div class="sensor-range"><span>0</span><span>10</span></div>
+      <div class="sensor-range"><span>0%</span><span>100%</span></div>
       <div class="sparkline-wrap"><canvas id="spark-rain"></canvas></div>
     </div>
 
@@ -606,7 +606,7 @@
       </div>
       <div class="sensor-value" id="val-tilt">—<span>°</span></div>
       <div class="sensor-bar"><div class="sensor-bar-fill" id="bar-tilt"></div></div>
-      <div class="sensor-range"><span>0°</span><span>45°</span></div>
+      <div class="sensor-range"><span>0°</span><span>10°</span></div>
       <div class="sparkline-wrap"><canvas id="spark-tilt"></canvas></div>
     </div>
 
@@ -667,22 +667,33 @@
 //  CONFIG — change API_URL to your backend
 // ══════════════════════════════════════════════
 const CONFIG = {
-  API_URL: 'https://landslide-backend-gip0.onrender.com/latest',
-  REFRESH_MS:     2000,
-  DEMO_MODE:      false,   // set false when real backend is running
-  MAX_LOG:        50,
-  SPARK_POINTS:   20,
+  API_URL:     'https://landslide-backend-gip0.onrender.com/latest',
+  REFRESH_MS:  2000,
+  DEMO_MODE:   false,
+  MAX_LOG:     50,
+  SPARK_POINTS: 20,
 };
 
 // ══════════════════════════════════════════════
 //  STATE
 // ══════════════════════════════════════════════
 const state = {
-  totalReads:  0,
-  highAlerts:  0,
-  lastRisk:    null,
-  sparkData:   { moisture: [], rain: [], humidity: [], tilt: [] },
+  totalReads:   0,
+  highAlerts:   0,
+  lastRisk:     null,
+  sparkData:    { moisture: [], rain: [], humidity: [], tilt: [] },
   notifGranted: false,
+};
+
+// ══════════════════════════════════════════════
+//  FIX 1 — risk_level number → string label
+//  Arduino sends 0/1/2/3, dashboard needs LOW/MEDIUM/HIGH
+// ══════════════════════════════════════════════
+const RISK_LABELS = {
+  0: 'LOW',
+  1: 'LOW',
+  2: 'MEDIUM',
+  3: 'HIGH'
 };
 
 // ══════════════════════════════════════════════
@@ -690,18 +701,16 @@ const state = {
 // ══════════════════════════════════════════════
 function getDemoData() {
   const r = Math.random();
-  let risk;
-  if      (r < .5)  risk = 'LOW';
-  else if (r < .8)  risk = 'MEDIUM';
-  else              risk = 'HIGH';
+  let risk_level;
+  if      (r < .5)  risk_level = 0;
+  else if (r < .8)  risk_level = 2;
+  else              risk_level = 3;
   return {
-    risk,
-    data: {
-      moisture: Math.floor(Math.random() * 800 + 100),
-      rain:     parseFloat((Math.random() * 8).toFixed(1)),
-      humidity: Math.floor(Math.random() * 60 + 30),
-      tilt:     parseFloat((Math.random() * 30).toFixed(1)),
-    }
+    risk_level,
+    moisture: Math.floor(Math.random() * 80),
+    rain:     Math.floor(Math.random() * 80),
+    humidity: Math.floor(Math.random() * 60 + 30),
+    tilt:     parseFloat((Math.random() * 9).toFixed(2)),
   };
 }
 
@@ -725,19 +734,19 @@ const RISK_MAP = {
 };
 
 // ══════════════════════════════════════════════
-//  UPDATE UI
+//  UPDATE RISK UI
 // ══════════════════════════════════════════════
 function updateRisk(risk) {
   const cfg = RISK_MAP[risk] || RISK_MAP.LOW;
 
-  const hero  = document.getElementById('risk-hero');
-  const val   = document.getElementById('risk-value');
-  const bar   = document.getElementById('risk-bar');
+  const hero    = document.getElementById('risk-hero');
+  const val     = document.getElementById('risk-value');
+  const bar     = document.getElementById('risk-bar');
   const overlay = document.getElementById('high-overlay');
   const banner  = document.getElementById('alert-banner');
 
-  val.textContent = risk;
-  val.style.color = cfg.color;
+  val.textContent      = risk;
+  val.style.color      = cfg.color;
   val.style.textShadow = `0 0 30px ${cfg.color}`;
   bar.style.width      = cfg.barW;
   bar.style.background = cfg.color;
@@ -750,6 +759,13 @@ function updateRisk(risk) {
   banner.classList.toggle('visible',  risk === 'HIGH');
 }
 
+// ══════════════════════════════════════════════
+//  UPDATE SENSOR CARD
+//  FIX 2 — Arduino already sends moisture/rain as 0–100%
+//           so NO re-mapping here, just use value directly
+//  FIX 3 — tilt max corrected to 10 (not 5)
+//  FIX 4 — removed duplicate barEl.style.background line
+// ══════════════════════════════════════════════
 function updateSensor(id, value, max) {
   const valEl = document.getElementById(`val-${id}`);
   const barEl = document.getElementById(`bar-${id}`);
@@ -759,66 +775,59 @@ function updateSensor(id, value, max) {
   void valEl.offsetWidth;
   valEl.classList.add('flash');
 
- const num = parseFloat(value);
-if (isNaN(num)) return;
+  const num = parseFloat(value);
+  if (isNaN(num)) return;
 
-const safeNum = Math.max(0, num);
- let displayValue = safeNum;
-let barValue = safeNum;
+  const safeNum = Math.max(0, num);
+  let displayValue = safeNum;
+  let barValue     = safeNum;
 
-if (id === 'rain') {
-  const DRY = 1023;
-  const WET = 500;   // your calibrated wet value
+  // FIX: moisture and rain already come as % from Arduino — use directly
+  if (id === 'moisture' || id === 'rain') {
+    displayValue = safeNum.toFixed(0);
+    barValue     = safeNum;
+  }
 
-  let percent = ((DRY - safeNum) / (DRY - WET)) * 100;
-  percent = Math.max(0, Math.min(100, percent));
+  // tilt: show actual value in degrees, scale bar to max
+  if (id === 'tilt') {
+    displayValue = safeNum.toFixed(2);
+    barValue     = safeNum;
+  }
 
-  displayValue = percent.toFixed(0);
-  barValue = percent;
-}
+  // humidity: already 0–100
+  if (id === 'humidity') {
+    displayValue = safeNum.toFixed(1);
+    barValue     = safeNum;
+  }
 
-if (id === 'tilt') {
-  let percent = (safeNum / 5) * 100;
-  percent = Math.max(0, Math.min(100, percent));
+  // Show % for moisture/rain/humidity, degrees for tilt
+  if (id === 'tilt') {
+    valEl.innerHTML = `${displayValue}<span>°</span>`;
+  } else {
+    valEl.innerHTML = `${displayValue}<span>%</span>`;
+  }
 
-  displayValue = percent.toFixed(0);
-  barValue = percent;
-}
+  barEl.style.width = `${Math.min(100, (barValue / max) * 100)}%`;
 
-if (id === 'moisture') {
-  const DRY = 1023;
-  const WET = 300;
+  // colour thresholds
+  let color = '#00ff88';
+  if (barValue > 70)      color = '#ff2244';
+  else if (barValue > 40) color = '#ffcc00';
 
-  let percent = ((DRY - safeNum) / (DRY - WET)) * 100;
-  percent = Math.max(0, Math.min(100, percent));
+  barEl.style.background = color;   // FIX: only set once (removed duplicate)
+  valEl.style.color      = color;
 
-  displayValue = percent.toFixed(0);
-  barValue = percent;
-}
-valEl.innerHTML = `${displayValue}<span>%</span>`;
-
-
-barEl.style.width = `${Math.min(100, (barValue / max) * 100)}%`;  // sparkline
-let color = "#00ff88";
-
-if (barValue > 70) {
-  color = "#ff2244";   // danger
-} else if (barValue > 40) {
-  color = "#ffcc00";   // warning
-}
-
-barEl.style.background = color;
-valEl.style.color = color;
-barEl.style.background = color;
+  // sparkline spike highlight
   const arr = state.sparkData[id];
   arr.push(safeNum);
   if (arr.length >= 5) {
-  let diff = arr[arr.length - 1] - arr[arr.length - 5];
-
-  if (diff > 100) {
-    barEl.style.boxShadow = "0 0 20px red";
+    const diff = arr[arr.length - 1] - arr[arr.length - 5];
+    if (diff > 20) {
+      barEl.style.boxShadow = '0 0 20px red';
+    } else {
+      barEl.style.boxShadow = 'none';
+    }
   }
-}
   if (arr.length > CONFIG.SPARK_POINTS) arr.shift();
   drawSparkline(`spark-${id}`, arr, max);
 }
@@ -839,7 +848,7 @@ function drawSparkline(canvasId, data, max) {
   ctx.clearRect(0, 0, W, H);
 
   if (data.length < 2) return;
-  const step = W / (data.length - 1);
+  const step  = W / (data.length - 1);
   const color = canvas.closest('.sensor-card').style.getPropertyValue('--card-accent') || '#00d4ff';
 
   // gradient fill
@@ -857,7 +866,7 @@ function drawSparkline(canvasId, data, max) {
   ctx.lineWidth = 1.5;
   ctx.stroke();
 
-  // fill below
+  // fill below line
   ctx.lineTo((data.length - 1) * step, H);
   ctx.lineTo(0, H);
   ctx.closePath();
@@ -867,22 +876,21 @@ function drawSparkline(canvasId, data, max) {
 
 // ══════════════════════════════════════════════
 //  ALERT LOG
+//  FIX 5 — use flat json fields instead of json.data.x
 // ══════════════════════════════════════════════
-function addLog(risk, data) {
+function addLog(risk, json) {
   const log = document.getElementById('alert-log');
-  // clear placeholder
   if (log.children.length === 1 && log.children[0].style.color === 'var(--muted)') {
     log.innerHTML = '';
   }
 
-  const now  = new Date();
-  const time = now.toTimeString().slice(0,8);
+  const time  = new Date().toTimeString().slice(0, 8);
   const entry = document.createElement('div');
   entry.className = 'alert-entry';
   entry.innerHTML = `
     <div class="alert-dot ${risk}"></div>
     <span style="color:${RISK_MAP[risk]?.color || 'var(--text)'};font-weight:600">${risk}</span>
-    <span style="color:var(--dim)">M:${data.moisture} R:${data.rain} H:${data.humidity}% T:${data.tilt}°</span>
+    <span style="color:var(--dim)">M:${json.moisture}% R:${json.rain}% H:${json.humidity}% T:${json.tilt}°</span>
     <span class="alert-time">${time}</span>
   `;
   log.prepend(entry);
@@ -890,31 +898,21 @@ function addLog(risk, data) {
 }
 
 // ══════════════════════════════════════════════
-//  ALERT SYSTEM (modular — ready for SMS/email)
+//  ALERT SYSTEM
 // ══════════════════════════════════════════════
 const AlertManager = {
-  // Called on every data update
-  evaluate(risk, data) {
+  evaluate(risk, json) {
     if (risk === 'HIGH') {
-      this.triggerVisual();
-      this.triggerBrowserNotification(risk, data);
+      this.triggerBrowserNotification(risk, json);
       this.triggerSound();
-      // Future hooks:
-      // this.triggerSMS(risk, data);
-      // this.triggerEmail(risk, data);
-      // this.triggerPushNotification(risk, data);
     }
-  },
-
-  triggerVisual() {
-    // handled in updateRisk()
   },
 
   triggerSound() {
     try {
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
       [220, 330, 440].forEach((freq, i) => {
-        const osc = ctx.createOscillator();
+        const osc  = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.connect(gain);
         gain.connect(ctx.destination);
@@ -923,34 +921,24 @@ const AlertManager = {
         gain.gain.setValueAtTime(.15, ctx.currentTime + i * .18);
         gain.gain.exponentialRampToValueAtTime(.001, ctx.currentTime + i * .18 + .15);
         osc.start(ctx.currentTime + i * .18);
-        osc.stop(ctx.currentTime + i * .18 + .2);
+        osc.stop(ctx.currentTime  + i * .18 + .2);
       });
     } catch(e) {}
   },
 
-  triggerBrowserNotification(risk, data) {
+  triggerBrowserNotification(risk, json) {
     if (!state.notifGranted) return;
     new Notification('⚠ HIGH LANDSLIDE RISK', {
-      body: `Moisture: ${data.moisture} | Rain: ${data.rain} | Humidity: ${data.humidity}% | Tilt: ${data.tilt}°`,
+      body: `Moisture: ${json.moisture}% | Rain: ${json.rain}% | Humidity: ${json.humidity}% | Tilt: ${json.tilt}°`,
       icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🌍</text></svg>',
       tag:  'landslide-high',
     });
   },
-
-  // ── Stubs for future expansion ──────────────
-  // triggerSMS(risk, data) {
-  //   fetch('/api/notify/sms', { method:'POST', body: JSON.stringify({ risk, data }) });
-  // },
-  // triggerEmail(risk, data) {
-  //   fetch('/api/notify/email', { method:'POST', body: JSON.stringify({ risk, data }) });
-  // },
-  // triggerPushNotification(risk, data) {
-  //   navigator.serviceWorker.ready.then(sw => sw.pushManager.subscribe(...));
-  // },
 };
 
 // ══════════════════════════════════════════════
 //  MAIN POLL LOOP
+//  FIX 6 — read flat json fields, convert risk_level number → string
 // ══════════════════════════════════════════════
 async function poll() {
   const ring    = document.getElementById('refresh-ring');
@@ -964,37 +952,40 @@ async function poll() {
 
   try {
     const json = await fetchData();
-    console.log("API DATA:", json);
-    const { risk, data } = json;
+    console.log('API DATA:', json);
+
+    // FIX: convert numeric risk_level (0/1/2/3) → text label (LOW/MEDIUM/HIGH)
+    const risk = RISK_LABELS[json.risk_level] || 'LOW';
 
     // update risk display
     updateRisk(risk);
 
-    // update sensors
-    updateSensor('moisture', data.moisture, 1023);
-    updateSensor('rain', data.rain, 1023);
-    updateSensor('humidity', data.humidity, 100);
-    updateSensor('tilt', data.tilt, 5);
+    // FIX: use flat json fields directly, correct max values
+    updateSensor('moisture', json.moisture, 100);  // already %
+    updateSensor('rain',     json.rain,     100);  // already %
+    updateSensor('humidity', json.humidity, 100);
+    updateSensor('tilt',     json.tilt,     10);   // FIX: max 10, not 5
+
     // log
-    addLog(risk, data);
+    addLog(risk, json);
 
     // alerts
-    AlertManager.evaluate(risk, data);
+    AlertManager.evaluate(risk, json);
 
     // stats
     state.totalReads++;
     if (risk === 'HIGH') state.highAlerts++;
-    readsEl.textContent = state.totalReads;
-    highsEl.textContent = state.highAlerts;
-    updEl.textContent   = new Date().toTimeString().slice(0,8);
-    connEl.textContent  = CONFIG.DEMO_MODE ? 'DEMO MODE' : 'ONLINE';
-    connEl.style.color  = CONFIG.DEMO_MODE ? 'var(--med)' : 'var(--low)';
+    readsEl.textContent  = state.totalReads;
+    highsEl.textContent  = state.highAlerts;
+    updEl.textContent    = new Date().toTimeString().slice(0, 8);
+    connEl.textContent   = CONFIG.DEMO_MODE ? 'DEMO MODE' : 'ONLINE';
+    connEl.style.color   = CONFIG.DEMO_MODE ? 'var(--med)' : 'var(--low)';
     dot.style.background = 'var(--low)';
     dot.style.boxShadow  = '0 0 12px var(--low)';
 
   } catch (err) {
-    connEl.textContent = 'OFFLINE';
-    connEl.style.color = 'var(--high)';
+    connEl.textContent   = 'OFFLINE';
+    connEl.style.color   = 'var(--high)';
     dot.style.background = 'var(--high)';
     dot.style.boxShadow  = '0 0 12px var(--high)';
     console.error('Fetch error:', err);
