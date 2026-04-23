@@ -1,175 +1,107 @@
-#include <SoftwareSerial.h>
 #include <DHT.h>
+#include <SoftwareSerial.h>
 
-// ─── Pins ─────────────────────────────
-#define SOIL_PIN A0
-#define RAIN_PIN A1
-#define DHT_PIN  4
+// ---------- DHT22 ----------
+#define DHTPIN 4
+#define DHTTYPE DHT22
+DHT dht(DHTPIN, DHTTYPE);
 
-SoftwareSerial gsm(7, 8);
-DHT dht(DHT_PIN, DHT22);
+// ---------- Sensors ----------
+#define RAIN_PIN A1        // Digital rain
+#define SOIL_PIN A0         // Analog soil
+#define TILT_PIN A2         // Optional (or fake)
 
-// ─── Phone Numbers ────────────────────
-String numbers[] = {
-  "+917899056484",
-  "+916301011375",
-  "+917889577563"
-};
-int numCount = 3;
+// ---------- SIM900A ----------
+SoftwareSerial sim(7, 8); // RX, TX
 
-// ─── Timing ───────────────────────────
-unsigned long lastRead = 0;
-const unsigned long INTERVAL = 2500;
+// ---------- Numbers ----------
+String num1 = "+919633390013";
+String num2 = "+918610734418";
+String num3 = "+918778258545";
 
-// ─── Serial Buffer ────────────────────
-String cmd = "";
+bool smsSent = false;
 
-// ─── Sensor Calibration ───────────────
-// Both sensors are INVERTED — high raw = dry, low raw = wet
-const int SOIL_DRY = 1023;
-const int SOIL_WET = 300;
-
-const int RAIN_DRY = 1023;
-const int RAIN_WET = 200;
-
-// ─── Tilt / Risk State ────────────────
-int riskLevel = 0;
-
-float fakeTiltX = 0.5;
-float fakeTiltY = 0.3;
-float fakeTiltZ = 9.8;
-
-// ─── Update Fake Accel Based on Risk ──
-void updateFakeMPU() {
-  float baseX, baseY, noise;
-
-  if (riskLevel == 0) {
-    baseX = 0.5;  baseY = 0.3;  noise = 0.05;
-  } else if (riskLevel == 1) {
-    baseX = 1.2;  baseY = 0.9;  noise = 0.10;
-  } else if (riskLevel == 2) {
-    baseX = 3.5;  baseY = 2.8;  noise = 0.20;
-  } else {
-    baseX = 7.5;  baseY = 6.2;  noise = 0.40;
-  }
-
-  // Add small realistic sensor noise around the base value
-  fakeTiltX = baseX + ((random(-10, 10)) * noise * 0.1);
-  fakeTiltY = baseY + ((random(-10, 10)) * noise * 0.1);
-
-  // Z-axis drops as tilt increases (gravity shifts to X/Y)
-  float mag = sqrt(fakeTiltX * fakeTiltX + fakeTiltY * fakeTiltY);
-  fakeTiltZ = sqrt(max(0.0, 9.81 * 9.81 - mag * mag));
-}
-
-// ─── Combined Risk Level ──────────────
-// All 3 sensors must agree to push risk higher
-// soil=44% and rain=44% will stay at safe/low
-// only if ALL three are high does it go critical
-int getRiskLevel(float tilt, int soilPercent, int rainPercent) {
-  if (tilt < 2.0 && soilPercent < 30 && rainPercent < 30) return 0;  // safe
-  if (tilt < 5.0 && soilPercent < 60 && rainPercent < 60) return 1;  // low
-  if (tilt < 9.0 && soilPercent < 80 && rainPercent < 80) return 2;  // medium
-  return 3;                                                            // critical
-}
-
-// ─── Setup ────────────────────────────
+// ---------- Setup ----------
 void setup() {
   Serial.begin(9600);
-  gsm.begin(9600);
+  sim.begin(9600);
+
+  pinMode(RAIN_PIN, INPUT);
   dht.begin();
-  randomSeed(analogRead(A2));
+
+  delay(5000); // SIM boot
+
+  Serial.println("System Ready...");
+}
+
+// ---------- Loop ----------
+void loop() {
+  // ---- Read Sensors ----
+  int rainDigital = digitalRead(RAIN_PIN);   // 0 = rain
+  int soilRaw = analogRead(SOIL_PIN);
+  int soil = map(soilRaw, 0, 1023, 100, 0);  // % inverted
+  float humidity = dht.readHumidity();
+
+  // ---- Tilt (replace with MPU later) ----
+  float tilt = map(analogRead(TILT_PIN), 0, 1023, 0, 10);
+
+  // ---- Risk Logic (local fallback only) ----
+  int risk = 0; // 0 SAFE, 1 MEDIUM, 2 CRITICAL
+
+  if (rainDigital == 0 && soil > 75 && humidity > 80 && tilt > 6) {
+    risk = 2; // CRITICAL
+  }
+  else if (soil > 50 || humidity > 65 || tilt > 3) {
+    risk = 1; // MEDIUM
+  }
+
+  // ---- Send JSON to Python ----
+  Serial.print("{");
+  Serial.print("\"rain\":"); Serial.print(rainDigital == 0 ? 100 : 0);
+  Serial.print(",\"soil\":"); Serial.print(soil);
+  Serial.print(",\"humidity\":"); Serial.print(humidity);
+  Serial.print(",\"tilt\":"); Serial.print(tilt);
+  Serial.println("}");
+
+  // ---- Check command from Python ----
+  if (Serial.available()) {
+    String cmd = Serial.readStringUntil('\n');
+    cmd.trim();
+
+    if (cmd == "SEND_SMS") {
+      sendSMS();
+    }
+  }
 
   delay(2000);
-
-  gsm.println("AT");
-  delay(500);
-  gsm.println("AT+CMGF=1");
-  delay(500);
-
-  Serial.println("SYSTEM READY");
 }
 
-// ─── Send SMS ─────────────────────────
-void sendSMS(String msg) {
-  for (int i = 0; i < numCount; i++) {
-    gsm.println("AT+CMGS=\"" + numbers[i] + "\"");
-    delay(1000);
-    gsm.print(msg);
-    delay(500);
-    gsm.write(26);
-    delay(5000);
-  }
-  Serial.println("[SMS SENT]");
+// ---------- SMS FUNCTION ----------
+void sendSMS() {
+  Serial.println("Sending SMS...");
+
+  sendToNumber(num1);
+  sendToNumber(num2);
+  sendToNumber(num3);
 }
 
-// ─── Loop ─────────────────────────────
-void loop() {
-  unsigned long now = millis();
+void sendToNumber(String number) {
+  sim.println("AT");
+  delay(500);
 
-  if (now - lastRead >= INTERVAL) {
-    lastRead = now;
+  sim.println("AT+CMGF=1");
+  delay(500);
 
-    // ── Soil & Rain Raw ───────────────────────────────────
-    int soilRaw = analogRead(SOIL_PIN);
-    int rainRaw = analogRead(RAIN_PIN);
+  sim.print("AT+CMGS=\"");
+  sim.print(number);
+  sim.println("\"");
+  delay(500);
 
-    // ── Convert to percentage (inverted mapping) ──────────
-    // 1023 (dry) → 0%   |   WET value → 100%
-    int soilPercent = map(soilRaw, SOIL_DRY, SOIL_WET, 0, 100);
-    int rainPercent = map(rainRaw, RAIN_DRY, RAIN_WET, 0, 100);
+  sim.println("⚠ CRITICAL LANDSLIDE RISK DETECTED!");
+  delay(200);
 
-    // Clamp to 0–100 in case raw value goes beyond calibration range
-    soilPercent = constrain(soilPercent, 0, 100);
-    rainPercent = constrain(rainPercent, 0, 100);
+  sim.write(26); // CTRL+Z
+  delay(5000);
 
-    // ── DHT22 ─────────────────────────────────────────────
-    float temp     = dht.readTemperature();
-    float humidity = dht.readHumidity();
-
-    bool tempValid = !isnan(temp);
-    bool humValid  = !isnan(humidity);
-
-    // ── Fake MPU6050 ──────────────────────────────────────
-    updateFakeMPU();
-
-    float tilt = sqrt(fakeTiltX * fakeTiltX + fakeTiltY * fakeTiltY);
-
-    // ── Risk Level (all 3 sensors combined) ───────────────
-    riskLevel = getRiskLevel(tilt, soilPercent, rainPercent);
-
-    // ── JSON Output ───────────────────────────────────────
-    String json = "{";
-    json += "\"moisture\":"   + String(soilPercent)                         + ",";  // 0=dry  100=wet
-    json += "\"rain\":"       + String(rainPercent)                         + ",";  // 0=none 100=heavy
-    json += "\"humidity\":"   + (humValid  ? String(humidity, 1) : "null")  + ",";
-    json += "\"temp\":"       + (tempValid ? String(temp, 1)     : "null")  + ",";
-    json += "\"tilt\":"       + String(tilt, 2)                             + ",";
-    json += "\"risk_level\":" + String(riskLevel);  // 0=safe 1=low 2=medium 3=critical
-    json += "}";
-
-    Serial.println(json);
-
-    // ── Auto SMS on critical risk ─────────────────────────
-    if (riskLevel == 3) {
-      sendSMS("LANDSLIDE ALERT! HIGH RISK DETECTED");
-    }
-  }
-
-  // ── Non-blocking Serial Command Receiver ──────────────
-  while (Serial.available()) {
-    char c = Serial.read();
-    if (c == '\n') {
-      cmd.trim();
-      Serial.print("[CMD RECEIVED]: ");
-      Serial.println(cmd);
-
-      if (cmd == "SEND_SMS") {
-        sendSMS("LANDSLIDE ALERT! HIGH RISK DETECTED");
-      }
-      cmd = "";
-    } else {
-      cmd += c;
-    }
-  }
+  Serial.println("SMS sent to " + number);
 }

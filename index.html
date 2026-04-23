@@ -683,34 +683,50 @@ const state = {
   lastRisk:     null,
   sparkData:    { moisture: [], rain: [], humidity: [], tilt: [] },
   notifGranted: false,
+  isPolling:    false,
 };
 
 // ══════════════════════════════════════════════
 //  FIX 1 — risk_level number → string label
 //  Arduino sends 0/1/2/3, dashboard needs LOW/MEDIUM/HIGH
 // ══════════════════════════════════════════════
-const RISK_LABELS = {
-  0: 'LOW',
-  1: 'LOW',
-  2: 'MEDIUM',
-  3: 'HIGH'
-};
+function normalizeResponse(res) {
+  if (!res || !res.data) return null;
+
+  return {
+    risk: res.risk || 'SAFE',
+    confidence: res.confidence ?? 0,
+    moisture: res.data.soil,
+    rain: res.data.rain,
+    humidity: res.data.humidity,
+    tilt: res.data.tilt,
+  };
+}
+
+function normalizeRisk(risk) {
+  if (risk === 'CRITICAL') return 'HIGH';
+  if (risk === 'MEDIUM') return 'MEDIUM';
+  return 'LOW';
+}
 
 // ══════════════════════════════════════════════
 //  DEMO DATA GENERATOR (remove when live)
 // ══════════════════════════════════════════════
 function getDemoData() {
   const r = Math.random();
-  let risk_level;
-  if      (r < .5)  risk_level = 0;
-  else if (r < .8)  risk_level = 2;
-  else              risk_level = 3;
+  let risk;
+  if      (r < .5)  risk = 'SAFE';
+  else if (r < .8)  risk = 'MEDIUM';
+  else              risk = 'CRITICAL';
   return {
-    risk_level,
-    moisture: Math.floor(Math.random() * 80),
-    rain:     Math.floor(Math.random() * 80),
-    humidity: Math.floor(Math.random() * 60 + 30),
-    tilt:     parseFloat((Math.random() * 9).toFixed(2)),
+    risk,
+    confidence: Math.random() * 0.3 + 0.7,
+    data: {
+      soil: Math.floor(Math.random() * 80),
+      rain: Math.floor(Math.random() * 80),
+      humidity: Math.floor(Math.random() * 60 + 30),
+      tilt: parseFloat((Math.random() * 9).toFixed(2)),
+    },
   };
 }
 
@@ -757,6 +773,24 @@ function updateRisk(risk) {
 
   overlay.classList.toggle('visible', risk === 'HIGH');
   banner.classList.toggle('visible',  risk === 'HIGH');
+}
+
+function updateConfidence(confidence) {
+  const el = document.getElementById('risk-confidence');
+  if (!el) return;
+  el.textContent = `Confidence: ${(Math.max(0, Math.min(1, Number(confidence) || 0)) * 100).toFixed(1)}%`;
+}
+
+function getColor(id, value) {
+  if (id === 'tilt') {
+    if (value > 8) return '#ff2244';
+    if (value > 4) return '#ffcc00';
+    return '#00ff88';
+  }
+
+  if (value > 70) return '#ff2244';
+  if (value > 40) return '#ffcc00';
+  return '#00ff88';
 }
 
 // ══════════════════════════════════════════════
@@ -809,12 +843,9 @@ function updateSensor(id, value, max) {
 
   barEl.style.width = `${Math.min(100, (barValue / max) * 100)}%`;
 
-  // colour thresholds
-  let color = '#00ff88';
-  if (barValue > 70)      color = '#ff2244';
-  else if (barValue > 40) color = '#ffcc00';
+  const color = getColor(id, barValue);
 
-  barEl.style.background = color;   // FIX: only set once (removed duplicate)
+  barEl.style.background = color;
   valEl.style.color      = color;
 
   // sparkline spike highlight
@@ -853,7 +884,7 @@ function drawSparkline(canvasId, data, max) {
 
   // gradient fill
   const grad = ctx.createLinearGradient(0, 0, 0, H);
-  grad.addColorStop(0, color.replace(')', ', .3)').replace('var(', 'rgba(').replace('#00d4ff','rgba(0,212,255'));
+  grad.addColorStop(0, 'rgba(0,212,255,0.3)');
   grad.addColorStop(1, 'rgba(0,0,0,0)');
 
   ctx.beginPath();
@@ -941,6 +972,9 @@ const AlertManager = {
 //  FIX 6 — read flat json fields, convert risk_level number → string
 // ══════════════════════════════════════════════
 async function poll() {
+  if (state.isPolling) return;
+  state.isPolling = true;
+
   const ring    = document.getElementById('refresh-ring');
   const connEl  = document.getElementById('st-conn');
   const readsEl = document.getElementById('st-reads');
@@ -951,28 +985,24 @@ async function poll() {
   ring.classList.add('active');
 
   try {
-    const json = await fetchData();
-    console.log('API DATA:', json);
+    const res = await fetchData();
+    const json = normalizeResponse(res);
+    if (!json) throw new Error('Invalid payload');
+    console.log('API DATA:', res);
 
-    // FIX: convert numeric risk_level (0/1/2/3) → text label (LOW/MEDIUM/HIGH)
-    const risk = RISK_LABELS[json.risk_level] || 'LOW';
+    const risk = normalizeRisk(json.risk);
 
-    // update risk display
     updateRisk(risk);
+    updateConfidence(json.confidence);
 
-    // FIX: use flat json fields directly, correct max values
-    updateSensor('moisture', json.moisture, 100);  // already %
-    updateSensor('rain',     json.rain,     100);  // already %
+    updateSensor('moisture', json.moisture, 100);
+    updateSensor('rain',     json.rain,     100);
     updateSensor('humidity', json.humidity, 100);
-    updateSensor('tilt',     json.tilt,     10);   // FIX: max 10, not 5
+    updateSensor('tilt',     json.tilt,     10);
 
-    // log
     addLog(risk, json);
-
-    // alerts
     AlertManager.evaluate(risk, json);
 
-    // stats
     state.totalReads++;
     if (risk === 'HIGH') state.highAlerts++;
     readsEl.textContent  = state.totalReads;
@@ -989,9 +1019,10 @@ async function poll() {
     dot.style.background = 'var(--high)';
     dot.style.boxShadow  = '0 0 12px var(--high)';
     console.error('Fetch error:', err);
+  } finally {
+    ring.classList.remove('active');
+    state.isPolling = false;
   }
-
-  ring.classList.remove('active');
 }
 
 // ══════════════════════════════════════════════
