@@ -1,0 +1,5 @@
+demo_state,soil_moisture_raw,rain_sensor_raw,humidity_pct,tilt_deg,ml_pred,display_meaning
+0,880,980,55,1,0,SAFE
+1,760,860,68,2,0,SAFE
+2,520,430,82,4,2,MEDIUM
+3,320,120,92,12,2,CRITICAL
